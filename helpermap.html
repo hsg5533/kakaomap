@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+    />
+    <title>Kakao 지도 시작하기</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      #map {
+        margin: 0;
+        width: 100vw;
+        height: 100vh;
+      }
+      #output {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #range {
+        width: 80vw;
+        background: transparent;
+        -webkit-appearance: none;
+      }
+      #range:focus {
+        outline: none;
+      }
+      #range::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 100%;
+        border-radius: 10px;
+        accent-color: #34beba;
+        border: 2px solid #34beba;
+      }
+      #range::-webkit-slider-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 10px;
+        background: #34beba;
+        -webkit-appearance: none;
+      }
+      #result {
+        display: inline-block;
+        margin-left: 3px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=19eab3a30f796b6d20716c28e1b57222&libraries=services"></script>
+    <script>
+      const mapCenter = new kakao.maps.LatLng(33.450701, 126.570667);
+      const map = new kakao.maps.Map(document.getElementById("map"), {
+        center: mapCenter,
+        level: 6,
+      });
+      const marker = new kakao.maps.Marker();
+      const geocoder = new kakao.maps.services.Geocoder();
+      const circle = new kakao.maps.Circle({
+        center: mapCenter, // 원의 중심좌표 입니다
+        radius: 1000, // 미터 단위의 원의 반지름입니다
+        strokeWeight: 3, // 선의 두께입니다
+        strokeColor: "#75B8FA", // 선의 색깔입니다
+        strokeOpacity: 1, // 선의 불투명도 입니다 1에서 0 사이의 값이며 0에 가까울수록 투명합니다
+        strokeStyle: "solid", // 선의 스타일 입니다
+        fillColor: "#CFE7FF", // 채우기 색깔입니다
+        fillOpacity: 0.5, // 채우기 불투명도 입니다
+      });
+
+      // 지도 데이터를 받아서 RN에 데이터를 저장한 다음 신분증 및 프로필 사진과 함께 배열형태로 백에 전송
+      let data = {
+        latitude: 0,
+        longitude: 0,
+        region: {},
+      };
+
+      function onChangePosition(data) {
+        const range = data.range;
+        const position = new kakao.maps.LatLng(data.lat, data.lng);
+        map.setCenter(position);
+        marker.setPosition(position);
+        circle.setPosition(position);
+        circle.setRadius(range);
+        if (range <= 300) {
+          map.setLevel(5);
+        } else if (range <= 500) {
+          map.setLevel(6);
+        } else if (range <= 1000) {
+          map.setLevel(7);
+        } else if (range <= 3000) {
+          map.setLevel(8);
+        } else if (range <= 5000) {
+          map.setLevel(9);
+        } else {
+          map.setLevel(10);
+        }
+        searchDetailAddrFromCoords(position);
+      }
+
+      function searchDetailAddrFromCoords(coords) {
+        // 좌표로 법정동 상세 주소 정보를 요청합니다
+        geocoder.coord2Address(
+          coords.getLng(),
+          coords.getLat(),
+          function (result, status) {
+            if (status === kakao.maps.services.Status.OK) {
+              data.region = result[0];
+              webToWebView(data);
+            }
+          }
+        );
+      }
+
+      function webToWebView(object) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(object));
+      }
+
+      map.setMaxLevel(10);
+      marker.setMap(map);
+      circle.setMap(map);
+      marker.setPosition(mapCenter);
+      circle.setPosition(mapCenter);
+      data.latitude = mapCenter.getLat();
+      data.longitude = mapCenter.getLng();
+
+      // ios
+      window.addEventListener("message", (event) => {
+        onChangePosition(JSON.parse(event.data));
+      });
+
+      // android
+      document.addEventListener("message", (event) => {
+        onChangePosition(JSON.parse(event.data));
+      });
+
+      kakao.maps.event.addListener(map, "drag", function () {
+        const center = map.getCenter();
+        marker.setPosition(center);
+        circle.setPosition(center);
+      });
+
+      kakao.maps.event.addListener(map, "dragend", function () {
+        const center = map.getCenter();
+        data.latitude = center.getLat();
+        data.longitude = center.getLng();
+        searchDetailAddrFromCoords(center);
+      });
+    </script>
+  </body>
+</html>

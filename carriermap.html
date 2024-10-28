@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <link rel="shortcut icon" href="" />
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
+    <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=19eab3a30f796b6d20716c28e1b57222&libraries=services,clusterer,drawing"></script>
+    <style>
+      body {
+        margin: 0;
+      }
+      #window {
+        background-color: #34beba;
+        color: #fff;
+        border-radius: 20px;
+        padding: 5px;
+        font-size: 14px;
+        display: inline-block;
+      }
+      .label {
+        background-color: #34beba;
+        padding-top: 5px;
+        padding-bottom: 5px;
+        padding-left: 10px;
+        padding-right: 10px;
+        border-radius: 20px;
+        color: #fff;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map" style="width: 100vw; height: 100vh"></div>
+    <script>
+      const map = new kakao.maps.Map(document.getElementById("map"), {
+        center: new kakao.maps.LatLng(36.45563363795531, 127.98581607083194),
+        level: 13,
+      });
+      const myWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>내위치</div>",
+        yAnchor: 2.2,
+      });
+
+      const startWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>출발지</div>",
+        yAnchor: 2.1,
+      });
+
+      const wayWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>경유지</div>",
+        yAnchor: 2.1,
+      });
+
+      const endWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>도착지</div>",
+        yAnchor: 2.2,
+      });
+      const polyline = new kakao.maps.Polyline({
+        strokeColor: "#34beba", // 선의 색깔입니다
+        strokeStyle: "solid", // 선의 스타일입니다
+        strokeOpacity: 0.7, // 선의 불투명도 입니다 1에서 0 사이의 값이며 0에 가까울수록 투명합니다
+        strokeWeight: 5, // 선의 두께 입니다
+      });
+      const customOverlay = new kakao.maps.CustomOverlay({
+        yAnchor: 0,
+      });
+      const positions = [];
+      const detailRoads = [];
+      let totalDistance = 0;
+      let totalDuration = 0;
+
+      function getContent(duration, distance) {
+        const hours = Math.floor(duration / 3600);
+        const minutes = Math.floor((duration % 3600) / 60);
+        const seconds = duration % 60;
+        if (distance > 1000) {
+          return `<div class ="label">거리 : ${(distance / 1000).toFixed(
+            1
+          )}km 소요시간 : ${hours} 시간 ${minutes}분 ${seconds}초`;
+        } else {
+          return `<div class ="label">거리 : ${distance}m 소요시간 : ${hours} 시간 ${minutes}분 ${seconds}초`;
+        }
+      }
+      function centroid(points) {
+        if (points.length == 2) {
+          return new kakao.maps.LatLng(
+            (points[0].x + points[1].x) / 2,
+            (points[0].y + points[1].y) / 2
+          );
+        } else {
+          let sumX = 0,
+            sumY = 0,
+            sumArea = 0,
+            current,
+            previous;
+          for (
+            let currentIndex = 0, previousIndex = points.length - 1;
+            currentIndex < points.length;
+            previousIndex = currentIndex++
+          ) {
+            current = points[currentIndex];
+            previous = points[previousIndex];
+            let areaProduct = current.y * previous.x - previous.y * current.x;
+            sumX += (current.x + previous.x) * areaProduct;
+            sumY += (current.y + previous.y) * areaProduct;
+            sumArea += 3 * areaProduct;
+          }
+          return new kakao.maps.LatLng(sumX / sumArea, sumY / sumArea);
+        }
+      }
+      function onChangeLevel(data) {
+        if (data <= 3000) {
+          map.setLevel(6);
+        } else if (data <= 5000) {
+          map.setLevel(7);
+        } else if (data <= 7000) {
+          map.setLevel(8);
+        } else if (data <= 10000) {
+          map.setLevel(9);
+        } else if (data <= 30000) {
+          map.setLevel(10);
+        } else if (data <= 50000) {
+          map.setLevel(11);
+        } else if (data <= 70000) {
+          map.setLevel(12);
+        } else {
+          map.setLevel(13);
+        }
+      }
+      async function fetchKakaoNavi(param) {
+        try {
+          const response = await fetch(
+            `https://apis-navi.kakaomobility.com/v1/directions?${param}&priority=RECOMMEND&car_fuel=GASOLINE&car_hipass=false&alternatives=false&road_details=false`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: "KakaoAK 5110261889bc7a6b88d643ac775f61a9",
+                "Content-Type": "application/json",
+              },
+            }
+          );
+          return await response.json();
+        } catch (err) {
+          throw new Error(err.message);
+        }
+      }
+      function getCurrentPosition() {
+        return new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            (position) =>
+              resolve({
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+              }),
+            (error) => reject(error),
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+          );
+        });
+      }
+      // 마커표시 함수
+      function onSetMarker(data) {
+        positions.push({ x: parseFloat(data.lat), y: parseFloat(data.lng) });
+        positions.push({
+          x: parseFloat(data.errandEndPointLat),
+          y: parseFloat(data.errandEndPointLng),
+        });
+        // 1.출발지와 경유지가 없는 경우
+        if (
+          data.errandStartPointLat === "0E-10" &&
+          data.errandStartPointLng === "0E-10" &&
+          data.errandWayPointLat === "0E-10" &&
+          data.errandWayPointLng === "0E-10"
+        ) {
+          fetchKakaoNavi(
+            `origin=${data.lng},${data.lat}&destination=${data.errandEndPointLng},${data.errandEndPointLat}&waypoints=`
+          )
+            .then((arg) => {
+              const { sections } = arg?.routes[0];
+              for (let k = 0; k < sections.length; k++) {
+                let { distance, duration, guides, roads } = sections[k]; //distance : 미터단위, duration : 초 단위
+                totalDistance += distance;
+                totalDuration += duration;
+                for (let i = 0; i < roads.length; i++) {
+                  let cursor = 0;
+                  const arg = roads[i];
+                  const mini = arg.vertexes;
+                  while (cursor < mini.length) {
+                    const obj = new kakao.maps.LatLng(
+                      mini[cursor + 1],
+                      mini[cursor]
+                    );
+                    detailRoads.push(obj);
+                    cursor = cursor + 2;
+                    if (cursor >= 1000000) break;
+                  }
+                }
+                guides = guides.map((arg, idx) => {
+                  const { x, y } = arg;
+                  if (x && y) {
+                    arg.position = new kakao.maps.LatLng(arg.y, arg.x);
+                  }
+                  return arg;
+                });
+                const {
+                  name: name1,
+                  title: title1,
+                  position: position1,
+                } = guides[0];
+                // 출발지가 없기 때문에 내위치에서 춣발
+                if (name1 === "출발지") {
+                  myPoint.setPosition(position1);
+                  myWindow.setPosition(position1);
+                  myPoint.setMap(map);
+                  myWindow.setMap(map);
+                }
+                const {
+                  name: name2,
+                  title: title2,
+                  position: position2,
+                } = guides[guides.length - 1];
+                if (name2 === "목적지") {
+                  endPoint.setPosition(position2);
+                  endWindow.setPosition(position2);
+                  endPoint.setMap(map);
+                  endWindow.setMap(map);
+                }
+                polyline.setPath(detailRoads);
+                polyline.setMap(map);
+              }
+              return { totalDistance, totalDuration };
+            })
+            .then((res) => {
+              const center = centroid(positions);
+              const content = getContent(res.totalDuration, res.totalDistance);
+              customOverlay.setPosition(center);
+              customOverlay.setContent(content);
+              customOverlay.setMap(map);
+              map.setCenter(center);
+              onChangeLevel(res.totalDistance);
+            })
+            .catch((err) => {
+              alert(JSON.stringify("에러" + err));
+            });
+        }
+        // 2.출발지가 있고 경유지가 없는 경우
+        if (
+          data.errandStartPointLat !== "0E-10" &&
+          data.errandStartPointLng !== "0E-10" &&
+          data.errandWayPointLat === "0E-10" &&
+          data.errandWayPointLng === "0E-10"
+        ) {
+          positions.push({
+            x: parseFloat(data.errandStartPointLat),
+            y: parseFloat(data.errandStartPointLng),
+          });
+          fetchKakaoNavi(
+            `origin=${data.errandStartPointLng},${data.errandStartPointLat}&destination=${data.errandEndPointLng},${data.errandEndPointLat}&waypoints=`
+          )
+            .then((arg) => {
+              const { result_code, summary, sections } = arg?.routes[0];
+              for (let k = 0; k < sections.length; k++) {
+                let { distance, duration, guides, roads } = sections[k]; //distance : 미터단위, duration : 초 단위
+                totalDistance += distance;
+                totalDuration += duration;
+                for (let i = 0; i < roads.length; i++) {
+                  let cursor = 0;
+                  const arg = roads[i];
+                  const mini = arg.vertexes;
+                  while (cursor < mini.length) {
+                    const obj = new kakao.maps.LatLng(
+                      mini[cursor + 1],
+                      mini[cursor]
+                    );
+                    detailRoads.push(obj);
+                    cursor = cursor + 2;
+                    if (cursor >= 1000000) break;
+                  }
+                }
+                guides = guides.map((arg, idx) => {
+                  const { x, y } = arg;
+                  if (x && y) {
+                    arg.position = new kakao.maps.LatLng(arg.y, arg.x);
+                  }
+                  return arg;
+                });
+                const myPosition = new kakao.maps.LatLng(
+                  parseFloat(data.lat),
+                  parseFloat(data.lng)
+                );
+                // 출발지가 있기 때문에 내위치를 별도로 표시
+                myPoint.setPosition(myPosition);
+                myWindow.setPosition(myPosition);
+                myPoint.setMap(map);
+                myWindow.setMap(map);
+                const {
+                  name: name1,
+                  title: title1,
+                  position: position1,
+                } = guides[0];
+                if (name1 === "출발지") {
+                  startPoint.setPosition(position1);
+                  startWindow.setPosition(position1);
+                  startPoint.setMap(map);
+                  startWindow.setMap(map);
+                }
+                const {
+                  name: name2,
+                  title: title2,
+                  position: position2,
+                } = guides[guides.length - 1];
+                if (name2 === "목적지") {
+                  endPoint.setPosition(position2);
+                  endWindow.setPosition(position2);
+                  endPoint.setMap(map);
+                  endWindow.setMap(map);
+                }
+                polyline.setPath(detailRoads);
+                polyline.setMap(map);
+              }
+              return { totalDistance, totalDuration };
+            })
+            .then((res) => {
+              const center = centroid(positions);
+              const content = getContent(res.totalDuration, res.totalDistance);
+              customOverlay.setPosition(center);
+              customOverlay.setContent(content);
+              customOverlay.setMap(map);
+              map.setCenter(center);
+              onChangeLevel(res.totalDistance);
+            })
+            .catch((err) => {
+              alert(JSON.stringify(err));
+            });
+        }
+        // 3.경유지가 있고 출발지가 없는 경우
+        if (
+          data.errandStartPointLat === "0E-10" &&
+          data.errandStartPointLng === "0E-10" &&
+          data.errandWayPointLat !== "0E-10" &&
+          data.errandWayPointLng !== "0E-10"
+        ) {
+          positions.push({
+            x: parseFloat(data.errandWayPointLat),
+            y: parseFloat(data.errandWayPointLng),
+          });
+          map.setCenter(centroid(positions));
+          fetchKakaoNavi(
+            `origin=${data.lng},${data.lat}&destination=${data.errandEndPointLng},${data.errandEndPointLat}&waypoints=${data.errandWayPointLng},${data.errandWayPointLat}`
+          )
+            .then((arg) => {
+              const { result_code, summary, sections } = arg?.routes[0];
+              for (let k = 0; k < sections.length; k++) {
+                let { distance, duration, guides, roads } = sections[k]; //distance : 미터단위, duration : 초 단위
+                totalDistance += distance;
+                totalDuration += duration;
+                for (let i = 0; i < roads.length; i++) {
+                  let cursor = 0;
+                  const arg = roads[i];
+                  const mini = arg.vertexes;
+                  while (cursor < mini.length) {
+                    const obj = new kakao.maps.LatLng(
+                      mini[cursor + 1],
+                      mini[cursor]
+                    );
+                    detailRoads.push(obj);
+                    cursor = cursor + 2;
+                    if (cursor >= 1000000) break;
+                  }
+                }
+                guides = guides.map((arg, idx) => {
+                  const { x, y } = arg;
+                  if (x && y) {
+                    arg.position = new kakao.maps.LatLng(arg.y, arg.x);
+                  }
+                  return arg;
+                });
+                const {
+                  name: name1,
+                  title: title1,
+                  position: position1,
+                } = guides[0];
+                // 출발지가 없기 때문에 내위치에서 춣발
+                if (name1 === "출발지") {
+                  myPoint.setPosition(position1);
+                  myWindow.setPosition(position1);
+                  myPoint.setMap(map);
+                  myWindow.setMap(map);
+                } else {
+                  wayPoint.setPosition(position1);
+                  wayWindow.setPosition(position1);
+                  wayPoint.setMap(map);
+                  wayWindow.setMap(map);
+                }
+                const {
+                  name: name2,
+                  title: title2,
+                  position: position2,
+                } = guides[guides.length - 1];
+                if (name2 === "목적지") {
+                  endPoint.setPosition(position2);
+                  endWindow.setPosition(position2);
+                  endPoint.setMap(map);
+                  endWindow.setMap(map);
+                }
+                polyline.setPath(detailRoads);
+                polyline.setMap(map);
+              }
+              return { totalDistance, totalDuration };
+            })
+            .then((res) => {
+              const center = centroid(positions);
+              const content = getContent(res.totalDuration, res.totalDistance);
+              customOverlay.setPosition(center);
+              customOverlay.setContent(content);
+              customOverlay.setMap(map);
+              map.setCenter(center);
+              onChangeLevel(res.totalDistance);
+            })
+            .catch((err) => {
+              alert(JSON.stringify(err));
+            });
+        }
+        // 4.출발지와 경유지가 있는 경우
+        if (
+          data.errandStartPointLat !== "0E-10" &&
+          data.errandStartPointLng !== "0E-10" &&
+          data.errandWayPointLat !== "0E-10" &&
+          data.errandWayPointLng !== "0E-10"
+        ) {
+          positions.push({
+            x: parseFloat(data.errandWayPointLat),
+            y: parseFloat(data.errandWayPointLng),
+          });
+          positions.push({
+            x: parseFloat(data.errandStartPointLat),
+            y: parseFloat(data.errandStartPointLng),
+          });
+          fetchKakaoNavi(
+            `origin=${data.errandStartPointLng},${data.errandStartPointLat}&destination=${data.errandEndPointLng},${data.errandEndPointLat}&waypoints=${data.errandWayPointLng},${data.errandWayPointLat}`
+          )
+            .then((arg) => {
+              const { result_code, summary, sections } = arg?.routes[0];
+              for (let k = 0; k < sections.length; k++) {
+                let { distance, duration, guides, roads } = sections[k]; //distance : 미터단위, duration : 초 단위
+                totalDistance += distance;
+                totalDuration += duration;
+                for (let i = 0; i < roads.length; i++) {
+                  let cursor = 0;
+                  const arg = roads[i];
+                  const mini = arg.vertexes;
+                  while (cursor < mini.length) {
+                    const obj = new kakao.maps.LatLng(
+                      mini[cursor + 1],
+                      mini[cursor]
+                    );
+                    detailRoads.push(obj);
+                    cursor = cursor + 2;
+                    if (cursor >= 1000000) break;
+                  }
+                }
+                guides = guides.map((arg, idx) => {
+                  const { x, y } = arg;
+                  if (x && y) {
+                    arg.position = new kakao.maps.LatLng(arg.y, arg.x);
+                  }
+                  return arg;
+                });
+                // 출발지가 있기 때문에 내위치를 별도로 표시
+                const myPosition = new kakao.maps.LatLng(
+                  parseFloat(data.lat),
+                  parseFloat(data.lng)
+                );
+                myPoint.setPosition(myPosition);
+                myWindow.setPosition(myPosition);
+                myPoint.setMap(map);
+                myWindow.setMap(map);
+                const {
+                  name: name1,
+                  title: title1,
+                  position: position1,
+                } = guides[0];
+                if (name1 === "출발지") {
+                  startPoint.setPosition(position1);
+                  startWindow.setPosition(position1);
+                  startPoint.setMap(map);
+                  startWindow.setMap(map);
+                } else {
+                  wayPoint.setPosition(position1);
+                  wayWindow.setPosition(position1);
+                  wayPoint.setMap(map);
+                  wayWindow.setMap(map);
+                }
+                const {
+                  name: name2,
+                  title: title2,
+                  position: position2,
+                } = guides[guides.length - 1];
+                if (name2 === "목적지") {
+                  endPoint.setPosition(position2);
+                  endWindow.setPosition(position2);
+                  endPoint.setMap(map);
+                  endWindow.setMap(map);
+                }
+                polyline.setPath(detailRoads);
+                polyline.setMap(map);
+              }
+              return { totalDistance, totalDuration };
+            })
+            .then((res) => {
+              const center = centroid(positions);
+              const content = getContent(res.totalDuration, res.totalDistance);
+              customOverlay.setPosition(center);
+              customOverlay.setContent(content);
+              customOverlay.setMap(map);
+              map.setCenter(center);
+              onChangeLevel(res.totalDistance);
+            })
+            .catch((err) => {
+              alert(JSON.stringify("에러" + err));
+            });
+        }
+      }
+      // ios
+      window.addEventListener("message", (event) => {
+        onSetMarker(JSON.parse(event.data));
+      });
+      // android
+      document.addEventListener("message", (event) => {
+        onSetMarker(JSON.parse(event.data));
+      });
+      getCurrentPosition().then((pos) => {
+        onSetMarker({
+          lat: pos.lat,
+          lng: pos.lng,
+          errandStartPointLat: 35.241716,
+          errandStartPointLng: 129.134656,
+          errandWayPointLat: 35.234436,
+          errandWayPointLng: 129.115313,
+          errandEndPointLat: pos.lat,
+          errandEndPointLng: pos.lng,
+        });
+      });
+    </script>
+  </body>
+</html>

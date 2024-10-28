@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+    />
+    <title>Kakao 지도 시작하기</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      #map {
+        margin: 0;
+        width: 100vw;
+        height: 100vh;
+      }
+      #window {
+        background-color: #34beba;
+        color: #fff;
+        border-radius: 20px;
+        padding: 5px;
+        font-size: 14px;
+        display: inline-block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=19eab3a30f796b6d20716c28e1b57222&libraries=services"></script>
+    <script>
+      const map = new kakao.maps.Map(document.getElementById("map"), {
+        center: new kakao.maps.LatLng(36.45563363795531, 127.98581607083194),
+        level: 13,
+      });
+      const zoomControl = new kakao.maps.ZoomControl();
+      const geocoder = new kakao.maps.services.Geocoder();
+      const mapTypeControl = new kakao.maps.MapTypeControl();
+      const myPoint = new kakao.maps.Marker();
+      const startPoint = new kakao.maps.Marker();
+      const wayPoint = new kakao.maps.Marker();
+      const endPoint = new kakao.maps.Marker();
+      const myWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>내위치</div>",
+        yAnchor: 2.2,
+      });
+      const startWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>출발지</div>",
+        yAnchor: 2.1,
+      });
+      const wayWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>경유지</div>",
+        yAnchor: 2.1,
+      });
+      const endWindow = new kakao.maps.CustomOverlay({
+        content: "<div id='window'>도착지</div>",
+        yAnchor: 2.2,
+      });
+      const path = [];
+      const points = [];
+
+      map.addControl(mapTypeControl, kakao.maps.ControlPosition.TOPRIGHT);
+      map.addControl(zoomControl, kakao.maps.ControlPosition.RIGHT);
+
+      // ios
+      window.addEventListener("message", (event) => {
+        onSetMarker(JSON.parse(event.data));
+      });
+
+      // android
+      document.addEventListener("message", (event) => {
+        onSetMarker(JSON.parse(event.data));
+      });
+
+      function centroid(points) {
+        if (points.length == 2) {
+          return new kakao.maps.LatLng(
+            (points[0].x + points[1].x) / 2,
+            (points[0].y + points[1].y) / 2
+          );
+        } else {
+          let sumX = 0,
+            sumY = 0,
+            sumArea = 0,
+            current,
+            previous;
+          for (
+            let currentIndex = 0, previousIndex = points.length - 1;
+            currentIndex < points.length;
+            previousIndex = currentIndex++
+          ) {
+            current = points[currentIndex];
+            previous = points[previousIndex];
+            let areaProduct = current.y * previous.x - previous.y * current.x;
+            sumX += (current.x + previous.x) * areaProduct;
+            sumY += (current.y + previous.y) * areaProduct;
+            sumArea += 3 * areaProduct;
+          }
+          return new kakao.maps.LatLng(sumX / sumArea, sumY / sumArea);
+        }
+      }
+
+      function onChangeLevel(data) {
+        if (data <= 3000) {
+          map.setLevel(6);
+        } else if (data <= 5000) {
+          map.setLevel(7);
+        } else if (data <= 7000) {
+          map.setLevel(8);
+        } else if (data <= 10000) {
+          map.setLevel(9);
+        } else if (data <= 30000) {
+          map.setLevel(10);
+        } else if (data <= 50000) {
+          map.setLevel(11);
+        } else if (data <= 70000) {
+          map.setLevel(12);
+        } else {
+          map.setLevel(13);
+        }
+      }
+
+      function onSetMarker(data) {
+        const myPosition = new kakao.maps.LatLng(data.lat, data.lng);
+        myPoint.setPosition(myPosition);
+        myWindow.setPosition(myPosition);
+        myWindow.setMap(map);
+        myPoint.setMap(map);
+        path.push(myPosition);
+        points.push({
+          x: parseFloat(data.lat),
+          y: parseFloat(data.lng),
+        });
+        if (
+          data.errandStartPointLat !== "0E-10" &&
+          data.errandStartPointLng !== "0E-10"
+        ) {
+          const startPosition = new kakao.maps.LatLng(
+            data.errandStartPointLat,
+            data.errandStartPointLng
+          );
+          startPoint.setPosition(startPosition);
+          startWindow.setPosition(startPosition);
+          startWindow.setMap(map);
+          startPoint.setMap(map);
+          path.push(startPosition);
+          points.push({
+            x: parseFloat(data.errandStartPointLat),
+            y: parseFloat(data.errandStartPointLng),
+          });
+        }
+        if (
+          data.errandWayPointLat !== "0E-10" &&
+          data.errandWayPointLng !== "0E-10"
+        ) {
+          const wayPosition = new kakao.maps.LatLng(
+            data.errandWayPointLat,
+            data.errandWayPointLng
+          );
+          wayPoint.setPosition(wayPosition);
+          wayWindow.setPosition(wayPosition);
+          wayWindow.setMap(map);
+          wayPoint.setMap(map);
+          path.push(wayPosition);
+          points.push({
+            x: parseFloat(data.errandWayPointLat),
+            y: parseFloat(data.errandWayPointLng),
+          });
+        }
+        if (
+          data.errandEndPointLat !== "0E-10" &&
+          data.errandEndPointLng !== "0E-10"
+        ) {
+          const endPosition = new kakao.maps.LatLng(
+            data.errandEndPointLat,
+            data.errandEndPointLng
+          );
+          endPoint.setPosition(endPosition);
+          endWindow.setPosition(endPosition);
+          endWindow.setMap(map);
+          endPoint.setMap(map);
+          path.push(endPosition);
+          points.push({
+            x: parseFloat(data.errandEndPointLat),
+            y: parseFloat(data.errandEndPointLng),
+          });
+        }
+        const polyline = new kakao.maps.Polyline({
+          map: map,
+          path: path,
+          strokeWeight: 7, // 선의 두께 입니다
+          strokeOpacity: 0.7, // 선의 불투명도 입니다 1에서 0 사이의 값이며 0에 가까울수록 투명합니다
+          strokeStyle: "solid", // 선의 스타일입니다
+          strokeColor: "#34beba", // 선의 색깔입니다
+        });
+        map.setCenter(centroid(points));
+        onChangeLevel(polyline.getLength());
+        window.ReactNativeWebView.postMessage("웹뷰 로드완료");
+      }
+    </script>
+  </body>
+</html>

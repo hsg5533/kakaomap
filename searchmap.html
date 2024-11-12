@@ -10,35 +10,19 @@
     <style>
       body {
         margin: 0px;
-        align-items: center;
-        align-content: center;
-        justify-items: center;
-        justify-content: center;
-      }
-      #container {
-        overflow: hidden;
-        height: 100vh;
-        position: relative;
-      }
-      #mapWrapper {
-        width: 100%;
-        height: 100vh;
       }
       #address_menu {
-        width: calc(100% - 5em);
+        width: 90%;
+        display: flex;
         position: absolute;
         top: 0px;
-        left: 2em;
-        right: 2em;
         padding: 5px;
         z-index: 1;
         border-radius: 10px;
-        align-items: center;
         background: rgba(255, 255, 255, 0.7);
       }
       #address {
-        width: calc(100% - 10em);
-        margin: 10px;
+        width: 90%;
         padding: 10px;
         border: 1px solid #ccc;
         border-radius: 5px;
@@ -47,17 +31,15 @@
         font-family: Arial, sans-serif;
         color: #333;
       }
-      #address_menu input {
-        font-size: 14px;
-      }
       #search {
         font-size: 20px;
         margin: 5px;
         color: #fff;
       }
       #btn {
+        width: 30%;
         border: none;
-        margin-left: 2px;
+        margin-left: 10px;
         border-radius: 10px;
         background-color: #34beba;
       }
@@ -96,7 +78,7 @@
         display: none;
         cursor: pointer;
         position: absolute;
-        bottom: 50px;
+        bottom: 2em;
         z-index: 2;
         padding: 5px;
         width: 60vw;
@@ -109,28 +91,10 @@
         margin: 0px 5px;
         color: #fff;
       }
-      @media (max-width: 768px) {
-        #address_menu {
-          width: 90%;
-          left: 50%;
-          transform: translateX(-50%);
-        }
-        #address {
-          margin: 5px;
-        }
-        #btn {
-          margin: 5px 0;
-          width: 100%;
-        }
-      }
     </style>
   </head>
   <body>
-    <div id="container">
-      <div id="mapWrapper">
-        <div id="map" style="width: 100%; height: 100vh"></div>
-      </div>
-    </div>
+    <div id="map" style="width: 100%; height: 100vh"></div>
     <div id="wrap">
       <div id="postcode"></div>
       <button id="close" onclick="closePostcode()">
